@@ -325,17 +325,25 @@
       <label>Categoria</label>
       <select id="txCategoria"></select>
 
+      <div class="row2">
+        <div>
+          <label>Data da compra</label>
+          <input type="date" id="txData">
+        </div>
+        <div>
+          <label>Parcelas</label>
+          <input type="number" id="txParcelas" value="1" min="1" max="48" inputmode="numeric">
+        </div>
+      </div>
+
       <label>Quem fez a compra</label>
       <div class="seg" id="txQuem">
         <button data-val="Gustavo" class="sel">Gustavo</button>
         <button data-val="Ana">Ana</button>
       </div>
 
-      <label>Data</label>
-      <input type="date" id="txData">
-
       <button class="btn-primary" id="btnSalvarTx">Salvar transação</button>
-      <div class="helper">Dica: salve esta página na tela inicial do celular para registrar em segundos sempre que chegar a notificação do cartão.</div>
+      <div class="helper">Para compras parceladas, informe o valor <strong>total</strong> da compra — a ferramenta divide automaticamente entre o número de parcelas, lançando uma parte em cada mês seguinte. Dica: salve esta página na tela inicial do celular para registrar em segundos sempre que chegar a notificação do cartão.</div>
     </div>
 
     <div class="card">
@@ -551,6 +559,18 @@ document.getElementById('btnRefresh').addEventListener('click', async ()=>{
   renderPainel();
 });
 
+// ---- sincronização automática em segundo plano ----
+async function autoSync(){
+  if(!SCRIPT_URL) return;
+  await loadAll();
+  renderPainel();
+}
+setInterval(autoSync, 20000); // a cada 20s
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden) autoSync(); // ao voltar para o app
+});
+window.addEventListener('focus', autoSync); // ao voltar para a aba/janela
+
 // ---- API: leitura e escrita na planilha Google ----
 async function apiGetAll(){
   if(!SCRIPT_URL) return { transacoes:[], fixos:[], receitasRec:[], receitasExtra:[] };
@@ -620,19 +640,47 @@ function normalizeNum(fields){
 }
 
 // ---- TRANSAÇÕES (cartão) ----
+function toLocalISODate(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
 document.getElementById('btnSalvarTx').addEventListener('click', async ()=>{
   const valor = parseFloat(document.getElementById('txValor').value);
   const desc = document.getElementById('txDesc').value.trim();
   const categoria = document.getElementById('txCategoria').value;
   const data = document.getElementById('txData').value;
+  const parcelas = Math.max(1, parseInt(document.getElementById('txParcelas').value) || 1);
   if(!valor || valor<=0 || !desc || !data){ toast('Preencha valor, descrição e data'); return; }
-  const novo = { id: Date.now(), valor, desc, categoria, quem: txQuemSel, data };
-  transacoes.unshift(novo);
+
+  const novos = [];
+  if(parcelas === 1){
+    novos.push({ id: Date.now(), valor, desc, categoria, quem: txQuemSel, data });
+  } else {
+    const valorBase = Math.floor((valor/parcelas)*100)/100;
+    let acumulado = 0;
+    for(let i=0;i<parcelas;i++){
+      const isUltima = i === parcelas-1;
+      const valorParcela = isUltima ? Math.round((valor - acumulado)*100)/100 : valorBase;
+      acumulado += valorParcela;
+      const dataParcela = new Date(data+'T00:00:00');
+      dataParcela.setMonth(dataParcela.getMonth() + i);
+      novos.push({
+        id: Date.now() + i,
+        valor: valorParcela,
+        desc: `${desc} (${i+1}/${parcelas})`,
+        categoria, quem: txQuemSel,
+        data: toLocalISODate(dataParcela)
+      });
+    }
+  }
+
+  novos.forEach(n => transacoes.unshift(n));
   renderTx();
   document.getElementById('txValor').value = '';
   document.getElementById('txDesc').value = '';
-  toast('Transação salva ✓');
-  await apiAdd('transacoes', novo);
+  document.getElementById('txParcelas').value = '1';
+  toast(parcelas>1 ? `Compra parcelada em ${parcelas}x salva ✓` : 'Transação salva ✓');
+  for(const n of novos){ await apiAdd('transacoes', n); }
 });
 
 function renderTx(){
