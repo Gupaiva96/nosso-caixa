@@ -283,6 +283,10 @@
   .tag-rec{ font-size:9.5px; padding:2px 6px; border-radius:99px; background: rgba(47,111,176,0.10); color:var(--blue); font-weight:700; margin-left:6px; }
   .tag-extra{ font-size:9.5px; padding:2px 6px; border-radius:99px; background: rgba(209,73,61,0.08); color:var(--red); font-weight:700; margin-left:6px; }
 
+  .seg.wrap{ flex-wrap: wrap; }
+  .seg.wrap button{ flex: 0 1 auto; padding: 7px 11px; }
+  select.multi-select{ min-height: 130px; }
+
   ::-webkit-scrollbar{ display:none; }
 </style>
 </head>
@@ -325,6 +329,9 @@
       <label>Categoria</label>
       <select id="txCategoria"></select>
 
+      <label>Cartão</label>
+      <select id="txCartao"></select>
+
       <div class="row2">
         <div>
           <label>Data da compra</label>
@@ -347,8 +354,24 @@
     </div>
 
     <div class="card">
-      <h2>Últimas transações</h2>
-      <div id="listaTx"></div>
+      <div class="month-nav">
+        <button id="txMesAnterior">‹</button>
+        <div class="month-label" id="txMesLabel">—</div>
+        <button id="txMesProximo">›</button>
+      </div>
+      <h2>Transações do mês</h2>
+      <div class="row2">
+        <div>
+          <label>Filtrar por cartão</label>
+          <select id="txFiltroCartao"></select>
+        </div>
+        <div>
+          <label>Filtrar por categoria</label>
+          <select id="txFiltroCategoria"></select>
+        </div>
+      </div>
+      <div id="listaTx" style="margin-top:14px;"></div>
+      <div class="helper">Excluir uma compra parcelada remove todas as parcelas dela de uma só vez, em todos os meses.</div>
     </div>
   </div>
 
@@ -426,10 +449,36 @@
 
   <!-- PAINEL -->
   <div class="panel" id="panel-painel">
-    <div class="month-nav">
-      <button id="mesAnterior">‹</button>
-      <div class="month-label" id="mesAtualLabel">—</div>
-      <button id="mesProximo">›</button>
+    <div class="card">
+      <h2>Período de análise</h2>
+      <div class="seg" id="painelModo">
+        <button data-val="mes" class="sel">Mês</button>
+        <button data-val="periodo">Período</button>
+      </div>
+
+      <div id="painelModoMes">
+        <div class="month-nav" style="margin-top:14px;">
+          <button id="mesAnterior">‹</button>
+          <div class="month-label" id="mesAtualLabel">—</div>
+          <button id="mesProximo">›</button>
+        </div>
+      </div>
+
+      <div id="painelModoPeriodo" style="display:none; margin-top:14px;">
+        <div class="row2">
+          <div><label>De</label><input type="month" id="periodoDe"></div>
+          <div><label>Até</label><input type="month" id="periodoAte"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Filtros</h2>
+      <label>Cartões (toque para selecionar um ou vários — nenhum selecionado mostra todos, inclusive gastos fixos)</label>
+      <div class="seg wrap" id="filtroCartoes"></div>
+      <label>Categorias (selecione uma ou várias)</label>
+      <select id="filtroCategorias" multiple class="multi-select"></select>
+      <button class="btn-ghost" id="btnLimparFiltros">Limpar filtros</button>
     </div>
 
     <div class="kpis">
@@ -445,7 +494,7 @@
     </div>
 
     <div class="card">
-      <h2>Recebimentos x Gastos — últimos 6 meses</h2>
+      <h2>Recebimentos x Gastos</h2>
       <div id="saldoChart"></div>
       <div class="legend">
         <div class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>Recebimentos</div>
@@ -454,7 +503,7 @@
     </div>
 
     <div class="card">
-      <h2>Evolução do saldo final — últimos 6 meses</h2>
+      <h2>Evolução do saldo final</h2>
       <div id="saldoLineChart"></div>
     </div>
   </div>
@@ -465,14 +514,26 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const CATEGORIAS = ["Moradia","Alimentação","Transporte","Saúde","Educação","Lazer","Compras","Assinaturas","Viagens","Outros"];
-const CAT_COLORS = ["#2f6fb0","#e0883f","#3aa168","#a855c7","#d1493d","#3fb8c4","#c79a2e","#6f7fd4","#d6588f","#7a8c3f"];
+const CATEGORIAS = ["Moradia","Alimentação","Transporte","Saúde","Educação","Lazer","Compras Gustavo","Compras Ana","Compras Sofia","Compras Casa","Presentes","Beleza","Assinaturas","Viagens","Outros"];
+const CAT_COLORS = ["#2f6fb0","#e0883f","#3aa168","#a855c7","#d1493d","#3fb8c4","#c79a2e","#6f7fd4","#d6588f","#7a8c3f","#b56b3c","#4f9bd1","#9e4f8c","#5fae4f","#c25b5b"];
+const CARTOES = ["Aeternum Gustavo","Aeternum Ana","Visa Infinite Gustavo","Inter Ana","Visa Ana","Renner Ana"];
 
-function fillCategorias(sel){
-  sel.innerHTML = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join("");
+function fillCategorias(sel, comTodos){
+  const opts = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.innerHTML = comTodos ? `<option value="">Todas as categorias</option>${opts}` : opts;
 }
-fillCategorias(document.getElementById('txCategoria'));
-fillCategorias(document.getElementById('fixCategoria'));
+function fillCartoes(sel, comTodos){
+  const opts = CARTOES.map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.innerHTML = comTodos ? `<option value="">Todos os cartões</option>${opts}` : `<option value="">Selecione o cartão</option>${opts}`;
+}
+fillCategorias(document.getElementById('txCategoria'), false);
+fillCategorias(document.getElementById('fixCategoria'), false);
+fillCartoes(document.getElementById('txCartao'), false);
+fillCategorias(document.getElementById('txFiltroCategoria'), true);
+fillCartoes(document.getElementById('txFiltroCartao'), true);
+
+document.getElementById('filtroCategorias').innerHTML = CATEGORIAS.map(c=>`<option value="${c}">${c}</option>`).join('');
+document.getElementById('filtroCartoes').innerHTML = CARTOES.map(c=>`<button data-val="${c}">${c}</button>`).join('');
 
 const todayISO = new Date().toISOString().slice(0,10);
 document.getElementById('txData').value = todayISO;
@@ -648,13 +709,16 @@ document.getElementById('btnSalvarTx').addEventListener('click', async ()=>{
   const valor = parseFloat(document.getElementById('txValor').value);
   const desc = document.getElementById('txDesc').value.trim();
   const categoria = document.getElementById('txCategoria').value;
+  const cartao = document.getElementById('txCartao').value;
   const data = document.getElementById('txData').value;
   const parcelas = Math.max(1, parseInt(document.getElementById('txParcelas').value) || 1);
   if(!valor || valor<=0 || !desc || !data){ toast('Preencha valor, descrição e data'); return; }
+  if(!cartao){ toast('Selecione o cartão'); return; }
 
   const novos = [];
+  const grupoId = parcelas>1 ? String(Date.now()) : null;
   if(parcelas === 1){
-    novos.push({ id: Date.now(), valor, desc, categoria, quem: txQuemSel, data });
+    novos.push({ id: Date.now(), valor, desc, categoria, quem: txQuemSel, data, cartao, grupo: null });
   } else {
     const valorBase = Math.floor((valor/parcelas)*100)/100;
     let acumulado = 0;
@@ -669,7 +733,8 @@ document.getElementById('btnSalvarTx').addEventListener('click', async ()=>{
         valor: valorParcela,
         desc: `${desc} (${i+1}/${parcelas})`,
         categoria, quem: txQuemSel,
-        data: toLocalISODate(dataParcela)
+        data: toLocalISODate(dataParcela),
+        cartao, grupo: grupoId
       });
     }
   }
@@ -683,31 +748,57 @@ document.getElementById('btnSalvarTx').addEventListener('click', async ()=>{
   for(const n of novos){ await apiAdd('transacoes', n); }
 });
 
+let txMesView = new Date(thisMonth+'-01T00:00:00');
+
 function renderTx(){
+  const key = mesKey(txMesView);
+  document.getElementById('txMesLabel').textContent = mesLabel(txMesView);
+  const filtroCartao = document.getElementById('txFiltroCartao').value;
+  const filtroCategoria = document.getElementById('txFiltroCategoria').value;
+
   const el = document.getElementById('listaTx');
-  const ultimos = transacoes.slice(0,15);
-  if(ultimos.length===0){ el.innerHTML = '<div class="empty">Nenhuma transação ainda. Registre a primeira compra do cartão acima.</div>'; return; }
-  el.innerHTML = ultimos.map(t=>`
+  const doMes = transacoes
+    .filter(t => t.data.slice(0,7)===key)
+    .filter(t => !filtroCartao || t.cartao===filtroCartao)
+    .filter(t => !filtroCategoria || t.categoria===filtroCategoria);
+
+  if(doMes.length===0){ el.innerHTML = '<div class="empty">Nenhuma transação neste mês (ou com este filtro).</div>'; return; }
+  el.innerHTML = doMes.map(t=>`
     <div class="list-item">
       <div class="li-left">
         <div class="li-desc">${t.desc}</div>
-        <div class="li-meta">${t.categoria} · ${formatDateBR(t.data)} <span class="who-pill ${t.quem==='Ana'?'ana':''}">${t.quem}</span></div>
+        <div class="li-meta">${t.categoria} · ${t.cartao||'sem cartão'} · ${formatDateBR(t.data)} <span class="who-pill ${t.quem==='Ana'?'ana':''}">${t.quem}</span></div>
       </div>
       <div style="display:flex; align-items:center; gap:6px;">
         <div class="li-val neg">-${brl(t.valor)}</div>
-        <button class="li-del" onclick="delTx(${t.id})">✕</button>
+        <button class="li-del" onclick="delTx(${t.id})" title="${t.grupo ? 'Excluir todas as parcelas desta compra' : 'Excluir'}">✕</button>
       </div>
     </div>
   `).join('');
 }
+document.getElementById('txMesAnterior').addEventListener('click', ()=>{ txMesView.setMonth(txMesView.getMonth()-1); renderTx(); });
+document.getElementById('txMesProximo').addEventListener('click', ()=>{ txMesView.setMonth(txMesView.getMonth()+1); renderTx(); });
+document.getElementById('txFiltroCartao').addEventListener('change', renderTx);
+document.getElementById('txFiltroCategoria').addEventListener('change', renderTx);
+
 function formatDateBR(iso){
   const [y,m,d] = iso.split('-');
   return `${d}/${m}`;
 }
 async function delTx(id){
-  transacoes = transacoes.filter(t=>t.id!==id);
-  renderTx();
-  await apiDelete('transacoes', id);
+  const t = transacoes.find(x=>x.id===id);
+  if(!t) return;
+  if(t.grupo){
+    const doGrupo = transacoes.filter(x=>x.grupo===t.grupo);
+    transacoes = transacoes.filter(x=>x.grupo!==t.grupo);
+    renderTx();
+    toast(`Compra parcelada excluída (${doGrupo.length} parcelas removidas)`);
+    for(const x of doGrupo){ await apiDelete('transacoes', x.id); }
+  } else {
+    transacoes = transacoes.filter(x=>x.id!==id);
+    renderTx();
+    await apiDelete('transacoes', id);
+  }
 }
 
 // ---- FIXOS (recorrentes, replicados em todos os meses) ----
@@ -861,52 +952,135 @@ function tapTooltip(evt, text){
 
 // ---- PAINEL ----
 let painelMes = new Date(thisMonth+'-01T00:00:00');
+let painelModo = 'mes';
+let filtroCartoesSel = [];
+let filtroCategoriasSel = [];
 
 document.getElementById('mesAnterior').addEventListener('click', ()=>{ painelMes.setMonth(painelMes.getMonth()-1); renderPainel(); });
 document.getElementById('mesProximo').addEventListener('click', ()=>{ painelMes.setMonth(painelMes.getMonth()+1); renderPainel(); });
 
+document.getElementById('periodoDe').value = thisMonth;
+document.getElementById('periodoAte').value = thisMonth;
+document.getElementById('periodoDe').addEventListener('change', renderPainel);
+document.getElementById('periodoAte').addEventListener('change', renderPainel);
+
+document.getElementById('painelModo').addEventListener('click', e=>{
+  if(e.target.tagName!=='BUTTON') return;
+  [...e.currentTarget.children].forEach(b=>b.classList.remove('sel'));
+  e.target.classList.add('sel');
+  painelModo = e.target.dataset.val;
+  document.getElementById('painelModoMes').style.display = painelModo==='mes' ? 'block' : 'none';
+  document.getElementById('painelModoPeriodo').style.display = painelModo==='periodo' ? 'block' : 'none';
+  renderPainel();
+});
+
+document.getElementById('filtroCartoes').addEventListener('click', e=>{
+  if(e.target.tagName!=='BUTTON') return;
+  const val = e.target.dataset.val;
+  if(filtroCartoesSel.includes(val)){
+    filtroCartoesSel = filtroCartoesSel.filter(c=>c!==val);
+    e.target.classList.remove('sel');
+  } else {
+    filtroCartoesSel.push(val);
+    e.target.classList.add('sel');
+  }
+  renderPainel();
+});
+
+document.getElementById('filtroCategorias').addEventListener('change', e=>{
+  filtroCategoriasSel = [...e.target.selectedOptions].map(o=>o.value);
+  renderPainel();
+});
+
+document.getElementById('btnLimparFiltros').addEventListener('click', ()=>{
+  filtroCartoesSel = [];
+  filtroCategoriasSel = [];
+  document.querySelectorAll('#filtroCartoes button').forEach(b=>b.classList.remove('sel'));
+  [...document.getElementById('filtroCategorias').options].forEach(o=>o.selected=false);
+  renderPainel();
+});
+
+function ultimosNMeses(refKey, n){
+  const arr = [];
+  for(let i=n-1;i>=0;i--){ arr.push(addMonths(refKey, -i)); }
+  return arr;
+}
+function mesesNoPeriodo(){
+  const de = document.getElementById('periodoDe').value || thisMonth;
+  const ate = document.getElementById('periodoAte').value || thisMonth;
+  const keys = [];
+  let cur = de<=ate ? de : ate;
+  const fim = de<=ate ? ate : de;
+  let guard = 0;
+  while(cur <= fim && guard < 60){ keys.push(cur); cur = addMonths(cur, 1); guard++; }
+  return keys.length ? keys : [de];
+}
+
+function gastosFiltrados(key){
+  const txDoMes = transacoes.filter(t=>t.data.slice(0,7)===key)
+    .filter(t => filtroCartoesSel.length===0 || filtroCartoesSel.includes(t.cartao))
+    .filter(t => filtroCategoriasSel.length===0 || filtroCategoriasSel.includes(t.categoria))
+    .map(t=>({categoria:t.categoria, valor:t.valor}));
+  if(filtroCartoesSel.length>0) return txDoMes; // filtrando por cartão, gastos fixos (sem cartão) saem do cálculo
+  const fixDoMes = fixosAtivosNoMes(key)
+    .filter(f => filtroCategoriasSel.length===0 || filtroCategoriasSel.includes(f.categoria))
+    .map(f=>({categoria:f.categoria, valor:f.valor}));
+  return [...txDoMes, ...fixDoMes];
+}
+function totalGastosFiltrados(key){
+  return gastosFiltrados(key).reduce((s,g)=>s+g.valor,0);
+}
+function totalReceitasMes(key){
+  return receitasAtivasNoMes(key).reduce((s,r)=>s+r.valor,0);
+}
+// versões "sem filtro" usadas em outras abas (fixos/receitas)
 function gastosDoMes(key){
   const txDoMes = transacoes.filter(t=>t.data.slice(0,7)===key).map(t=>({categoria:t.categoria, valor:t.valor}));
   const fixDoMes = fixosAtivosNoMes(key).map(f=>({categoria:f.categoria, valor:f.valor}));
   return [...txDoMes, ...fixDoMes];
-}
-function totalReceitasMes(key){
-  return receitasAtivasNoMes(key).reduce((s,r)=>s+r.valor,0);
 }
 function totalGastosMes(key){
   return gastosDoMes(key).reduce((s,g)=>s+g.valor,0);
 }
 
 function renderPainel(){
-  const key = mesKey(painelMes);
-  document.getElementById('mesAtualLabel').textContent = mesLabel(painelMes);
+  const kpiKeys = painelModo==='mes' ? [mesKey(painelMes)] : mesesNoPeriodo();
 
-  const rec = totalReceitasMes(key);
-  const gas = totalGastosMes(key);
-  const saldo = rec - gas;
+  let totalRec = 0, totalGas = 0;
+  const gastosAgregados = [];
+  kpiKeys.forEach(k=>{
+    totalRec += totalReceitasMes(k);
+    totalGas += totalGastosFiltrados(k);
+    gastosAgregados.push(...gastosFiltrados(k));
+  });
+  const saldo = totalRec - totalGas;
 
-  document.getElementById('kpiReceitas').textContent = brl(rec);
-  document.getElementById('kpiGastos').textContent = brl(gas);
+  if(painelModo==='mes') document.getElementById('mesAtualLabel').textContent = mesLabel(painelMes);
+
+  document.getElementById('kpiReceitas').textContent = brl(totalRec);
+  document.getElementById('kpiGastos').textContent = brl(totalGas);
   document.getElementById('kpiSaldo').textContent = brl(saldo);
   const box = document.getElementById('kpiSaldoBox');
   box.classList.remove('balance-pos','balance-neg');
   box.classList.add(saldo>=0 ? 'balance-pos':'balance-neg');
 
-  renderPie(key, gas);
-  renderSaldoChart(key);
-  renderSaldoLineChart(key);
+  renderPieFromGastos(gastosAgregados, totalGas);
+
+  const chartKeys = painelModo==='mes' ? ultimosNMeses(mesKey(painelMes), 6) : kpiKeys;
+  renderSaldoChart(chartKeys);
+  renderSaldoLineChart(chartKeys);
 }
 
-function renderPie(key, totalGas){
+function renderPieFromGastos(gastosArr, totalGas){
   const porCategoria = {};
-  gastosDoMes(key).forEach(g=>{ porCategoria[g.categoria] = (porCategoria[g.categoria]||0) + g.valor; });
+  gastosArr.forEach(g=>{ porCategoria[g.categoria] = (porCategoria[g.categoria]||0) + g.valor; });
   const entradas = Object.entries(porCategoria).sort((a,b)=>b[1]-a[1]);
   const wrap = document.getElementById('pieWrap');
   const legend = document.getElementById('pieLegend');
 
   if(entradas.length===0 || totalGas===0){
     wrap.innerHTML = `<div class="pie" style="background:#e7f0fa"><div class="pie-center"><div class="v">R$ 0</div><div class="l">total</div></div></div>`;
-    legend.innerHTML = '<div class="empty">Sem gastos registrados neste mês.</div>';
+    legend.innerHTML = '<div class="empty">Sem gastos registrados neste período (ou com este filtro).</div>';
     return;
   }
 
@@ -922,7 +1096,8 @@ function renderPie(key, totalGas){
     const y1 = CY + R*Math.sin(startAngle*Math.PI/180);
     const x2 = CX + R*Math.cos(endAngle*Math.PI/180);
     const y2 = CY + R*Math.sin(endAngle*Math.PI/180);
-    const color = CAT_COLORS[i % CAT_COLORS.length];
+    const colorIdx = CATEGORIAS.indexOf(cat);
+    const color = CAT_COLORS[(colorIdx>=0?colorIdx:i) % CAT_COLORS.length];
     const label = `${cat}: ${brl(val)} (${(pct*100).toFixed(0)}%)`;
     slices += `<path class="pie-slice" d="M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z"
       fill="${color}"
@@ -936,7 +1111,6 @@ function renderPie(key, totalGas){
       ${slices}
       <circle cx="90" cy="90" r="52" fill="var(--bg-card)"/>
     </svg>`;
-  // overlay total text centered
   const totalDiv = document.createElement('div');
   totalDiv.style.position = 'absolute';
   wrap.style.position = 'relative';
@@ -948,25 +1122,25 @@ function renderPie(key, totalGas){
   totalDiv.style.transform = 'translate(-50%,-50%)';
   wrap.appendChild(totalDiv);
 
-  legend.innerHTML = entradas.map(([cat,val], i)=>`
-    <div class="legend-item"><span class="legend-dot" style="background:${CAT_COLORS[i % CAT_COLORS.length]}"></span>${cat} · ${brl(val)}</div>
-  `).join('');
+  legend.innerHTML = entradas.map(([cat,val])=>{
+    const colorIdx = CATEGORIAS.indexOf(cat);
+    const color = CAT_COLORS[(colorIdx>=0?colorIdx:0) % CAT_COLORS.length];
+    return `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${cat} · ${brl(val)}</div>`;
+  }).join('');
 }
 
-function renderSaldoChart(refMonthKey){
-  const meses = [];
-  for(let i=5;i>=0;i--){ meses.push(addMonths(refMonthKey, -i)); }
-  const dados = meses.map(k=>{
+function renderSaldoChart(keys){
+  const dados = keys.map(k=>{
     const r = totalReceitasMes(k);
-    const g = totalGastosMes(k);
-    return { key:k, label: new Date(k+'-01T00:00:00').toLocaleDateString('pt-BR',{month:'short'}), receitas:r, gastos:g };
+    const g = totalGastosFiltrados(k);
+    return { key:k, label: new Date(k+'-01T00:00:00').toLocaleDateString('pt-BR',{month:'short', year: keys.length>6 ? '2-digit' : undefined}), receitas:r, gastos:g };
   });
 
   const W = 320, H = 190, padL = 8, padR = 8, padT = 14, padB = 26;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const groupW = chartW / dados.length;
-  const barW = groupW * 0.3;
+  const barW = Math.min(groupW * 0.3, 26);
 
   const maxVal = Math.max(...dados.map(d=>Math.max(d.receitas, d.gastos)), 1);
   function barH(v){ return (v/maxVal)*chartH; }
@@ -996,26 +1170,23 @@ function renderSaldoChart(refMonthKey){
   document.getElementById('saldoChart').innerHTML = svg;
 }
 
-function renderSaldoLineChart(refMonthKey){
-  const meses = [];
-  for(let i=5;i>=0;i--){ meses.push(addMonths(refMonthKey, -i)); }
-  const dados = meses.map(k=>{
+function renderSaldoLineChart(keys){
+  const dados = keys.map(k=>{
     const r = totalReceitasMes(k);
-    const g = totalGastosMes(k);
-    return { key:k, label: new Date(k+'-01T00:00:00').toLocaleDateString('pt-BR',{month:'short'}), saldo:r-g };
+    const g = totalGastosFiltrados(k);
+    return { key:k, label: new Date(k+'-01T00:00:00').toLocaleDateString('pt-BR',{month:'short', year: keys.length>6 ? '2-digit' : undefined}), saldo:r-g };
   });
 
   const W = 320, H = 190, padL = 16, padR = 16, padT = 22, padB = 26;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
-  const stepX = chartW / (dados.length-1);
+  const stepX = dados.length>1 ? chartW / (dados.length-1) : 0;
 
   const maxAbs = Math.max(...dados.map(d=>Math.abs(d.saldo)), 1);
   function yFor(v){ return padT + chartH/2 - (v/maxAbs)*(chartH/2); }
 
-  const pts = dados.map((d,i)=> [padL + stepX*i, yFor(d.saldo)]);
+  const pts = dados.map((d,i)=> [dados.length>1 ? padL + stepX*i : padL + chartW/2, yFor(d.saldo)]);
 
-  // smooth curve via simple Catmull-Rom -> bezier approximation
   function smoothPath(points){
     if(points.length<2) return '';
     let d = `M${points[0][0].toFixed(1)},${points[0][1].toFixed(1)}`;
@@ -1034,7 +1205,7 @@ function renderSaldoLineChart(refMonthKey){
   }
 
   const zeroY = yFor(0);
-  const path = smoothPath(pts);
+  const path = pts.length>1 ? smoothPath(pts) : '';
   const dots = dados.map((d,i)=>{
     const [x,y] = pts[i];
     const label = `Saldo ${d.label}: ${brl(d.saldo)}`;
@@ -1047,7 +1218,7 @@ function renderSaldoLineChart(refMonthKey){
   const svg = `
   <svg class="chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>
-    <path d="${path}" fill="none" stroke="var(--blue)" stroke-width="2.4"/>
+    ${path ? `<path d="${path}" fill="none" stroke="var(--blue)" stroke-width="2.4"/>` : ''}
     ${dots}
     ${labels}
   </svg>`;
