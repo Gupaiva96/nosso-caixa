@@ -474,10 +474,15 @@
 
     <div class="card">
       <h2>Filtros</h2>
-      <label>Cartões (toque para selecionar um ou vários — nenhum selecionado mostra todos, inclusive gastos fixos)</label>
+      <label>Cartões (toque para selecionar um ou vários — nenhum selecionado mostra todos)</label>
       <div class="seg wrap" id="filtroCartoes"></div>
       <label>Categorias (selecione uma ou várias)</label>
       <select id="filtroCategorias" multiple class="multi-select"></select>
+      <label>Gastos fixos (sem cartão associado)</label>
+      <div class="seg" id="filtroIncluirFixos">
+        <button data-val="sim" class="sel">Incluir</button>
+        <button data-val="nao">Não incluir</button>
+      </div>
       <button class="btn-ghost" id="btnLimparFiltros">Limpar filtros</button>
     </div>
 
@@ -491,6 +496,11 @@
       <h2>Gastos por categoria</h2>
       <div class="pie-wrap" id="pieWrap"></div>
       <div class="legend" id="pieLegend"></div>
+    </div>
+
+    <div class="card">
+      <h2>Lançamentos que compõem este valor</h2>
+      <div id="listaDetalhe"></div>
     </div>
 
     <div class="card">
@@ -516,7 +526,7 @@
 <script>
 const CATEGORIAS = ["Moradia","Alimentação","Transporte","Saúde","Educação","Lazer","Compras Gustavo","Compras Ana","Compras Sofia","Compras Casa","Presentes","Beleza","Assinaturas","Viagens","Outros"];
 const CAT_COLORS = ["#2f6fb0","#e0883f","#3aa168","#a855c7","#d1493d","#3fb8c4","#c79a2e","#6f7fd4","#d6588f","#7a8c3f","#b56b3c","#4f9bd1","#9e4f8c","#5fae4f","#c25b5b"];
-const CARTOES = ["Aeternum Gustavo","Aeternum Ana","Visa Infinite Gustavo","Inter Ana","Visa Ana","Renner Ana"];
+const CARTOES = ["Aeternum Gustavo","Aeternum Ana","Visa Infinite Gustavo","Inter Ana","Visa Ana","Renner Ana","Gustavo Itaú"];
 
 function fillCategorias(sel, comTodos){
   const opts = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join("");
@@ -955,6 +965,15 @@ let painelMes = new Date(thisMonth+'-01T00:00:00');
 let painelModo = 'mes';
 let filtroCartoesSel = [];
 let filtroCategoriasSel = [];
+let filtroIncluirFixos = true;
+
+document.getElementById('filtroIncluirFixos').addEventListener('click', e=>{
+  if(e.target.tagName!=='BUTTON') return;
+  [...e.currentTarget.children].forEach(b=>b.classList.remove('sel'));
+  e.target.classList.add('sel');
+  filtroIncluirFixos = e.target.dataset.val === 'sim';
+  renderPainel();
+});
 
 document.getElementById('mesAnterior').addEventListener('click', ()=>{ painelMes.setMonth(painelMes.getMonth()-1); renderPainel(); });
 document.getElementById('mesProximo').addEventListener('click', ()=>{ painelMes.setMonth(painelMes.getMonth()+1); renderPainel(); });
@@ -995,8 +1014,10 @@ document.getElementById('filtroCategorias').addEventListener('change', e=>{
 document.getElementById('btnLimparFiltros').addEventListener('click', ()=>{
   filtroCartoesSel = [];
   filtroCategoriasSel = [];
+  filtroIncluirFixos = true;
   document.querySelectorAll('#filtroCartoes button').forEach(b=>b.classList.remove('sel'));
   [...document.getElementById('filtroCategorias').options].forEach(o=>o.selected=false);
+  document.querySelectorAll('#filtroIncluirFixos button').forEach(b=>b.classList.toggle('sel', b.dataset.val==='sim'));
   renderPainel();
 });
 
@@ -1020,11 +1041,15 @@ function gastosFiltrados(key){
   const txDoMes = transacoes.filter(t=>t.data.slice(0,7)===key)
     .filter(t => filtroCartoesSel.length===0 || filtroCartoesSel.includes(t.cartao))
     .filter(t => filtroCategoriasSel.length===0 || filtroCategoriasSel.includes(t.categoria))
-    .map(t=>({categoria:t.categoria, valor:t.valor}));
-  if(filtroCartoesSel.length>0) return txDoMes; // filtrando por cartão, gastos fixos (sem cartão) saem do cálculo
+    .map(t=>({ tipo:'cartao', categoria:t.categoria, valor:t.valor, desc:t.desc, cartao:t.cartao, quem:t.quem, data:t.data }));
+
+  if(!filtroIncluirFixos) return txDoMes;
+
   const fixDoMes = fixosAtivosNoMes(key)
+    .filter(f => filtroCartoesSel.length===0) // gastos fixos não têm cartão; se algum cartão específico está selecionado, eles ficam de fora
     .filter(f => filtroCategoriasSel.length===0 || filtroCategoriasSel.includes(f.categoria))
-    .map(f=>({categoria:f.categoria, valor:f.valor}));
+    .map(f=>({ tipo:'fixo', categoria:f.categoria, valor:f.valor, desc:f.desc, cartao:null, quem:null, data:key+'-01' }));
+
   return [...txDoMes, ...fixDoMes];
 }
 function totalGastosFiltrados(key){
@@ -1065,10 +1090,32 @@ function renderPainel(){
   box.classList.add(saldo>=0 ? 'balance-pos':'balance-neg');
 
   renderPieFromGastos(gastosAgregados, totalGas);
+  renderDetalhe(gastosAgregados);
 
   const chartKeys = painelModo==='mes' ? ultimosNMeses(mesKey(painelMes), 6) : kpiKeys;
   renderSaldoChart(chartKeys);
   renderSaldoLineChart(chartKeys);
+}
+
+function renderDetalhe(itens){
+  const el = document.getElementById('listaDetalhe');
+  if(itens.length===0){ el.innerHTML = '<div class="empty">Nenhum lançamento neste período (ou com este filtro).</div>'; return; }
+  const ordenados = [...itens].sort((a,b)=> b.data.localeCompare(a.data));
+  el.innerHTML = ordenados.map(it=>{
+    const metaPartes = [it.categoria];
+    if(it.tipo==='fixo'){ metaPartes.push('gasto fixo'); }
+    else { metaPartes.push(it.cartao||'sem cartão'); }
+    if(it.data && it.tipo==='cartao') metaPartes.push(formatDateBR(it.data));
+    const quemTag = it.quem ? `<span class="who-pill ${it.quem==='Ana'?'ana':''}">${it.quem}</span>` : '';
+    return `
+    <div class="list-item">
+      <div class="li-left">
+        <div class="li-desc">${it.desc}</div>
+        <div class="li-meta">${metaPartes.join(' · ')} ${quemTag}</div>
+      </div>
+      <div class="li-val neg">-${brl(it.valor)}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderPieFromGastos(gastosArr, totalGas){
